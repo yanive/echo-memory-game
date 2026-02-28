@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ECHO — Sequence Memory</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg:      #06080F;
+            --surface: #0D1120;
+            --border:  rgba(255,255,255,0.07);
+            --text:    #E8EAF0;
+            --dim:     #3A4060;
+            --c0: #FF6B35;  /* fire   */
+            --c1: #00D4FF;  /* gem    */
+            --c2: #FFE600;  /* bolt   */
+            --c3: #4488FF;  /* wave   */
+            --c4: #44FF88;  /* clover */
+            --c5: #CC44FF;  /* eye    */
+        }
+
+        body {
+            background: var(--bg);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Space Grotesk', sans-serif;
+            color: var(--text);
+            padding: 2rem 1rem;
+            overflow-x: hidden;
+        }
+
+        /* scanlines */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent 0px, transparent 2px,
+                rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 4px
+            );
+            pointer-events: none;
+            z-index: 999;
+        }
+
+        /* ambient glow */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 700px; height: 700px;
+            background: radial-gradient(ellipse, rgba(68,100,255,0.07) 0%, transparent 65%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .wrapper {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 400px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.8rem;
+            animation: wrapIn 0.6s cubic-bezier(0.16,1,0.3,1) both;
+        }
+
+        @keyframes wrapIn {
+            from { opacity: 0; transform: translateY(24px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ─── Header ─── */
+        .title {
+            font-size: clamp(3.5rem, 14vw, 5.5rem);
+            font-weight: 700;
+            letter-spacing: 0.35em;
+            text-transform: uppercase;
+            color: var(--text);
+            text-shadow:
+                0 0 30px rgba(100,140,255,0.5),
+                0 0 80px rgba(100,140,255,0.2);
+            line-height: 1;
+            text-align: center;
+        }
+
+        .tagline {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.58rem;
+            letter-spacing: 0.38em;
+            color: var(--dim);
+            text-transform: uppercase;
+            text-align: center;
+            margin-top: 0.35rem;
+        }
+
+        /* ─── Score bar ─── */
+        .scorebar {
+            display: flex;
+            align-items: center;
+            gap: 2.5rem;
+        }
+
+        .score-item { text-align: center; }
+
+        .score-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.52rem;
+            letter-spacing: 0.35em;
+            text-transform: uppercase;
+            color: var(--dim);
+            margin-bottom: 0.15rem;
+        }
+
+        .score-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 2.2rem;
+            font-weight: 700;
+            line-height: 1;
+            color: var(--text);
+            transition: color 0.3s, text-shadow 0.3s;
+        }
+
+        .score-val.glow {
+            color: var(--c2);
+            text-shadow: 0 0 20px rgba(255,230,0,0.5);
+        }
+
+        .score-sep {
+            width: 1px;
+            height: 44px;
+            background: var(--border);
+        }
+
+        /* ─── Grid wrapper ─── */
+        .grid-wrap {
+            position: relative;
+            width: 100%;
+        }
+
+        /* ─── Tile grid ─── */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.65rem;
+            width: 100%;
+        }
+
+        .tile {
+            aspect-ratio: 1;
+            border-radius: 16px;
+            background: var(--surface);
+            border: 1.5px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: clamp(2rem, 9vw, 2.6rem);
+            cursor: pointer;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            position: relative;
+            overflow: hidden;
+            opacity: 0.45;
+            transition: border-color 0.12s, box-shadow 0.12s, background 0.12s, opacity 0.12s, transform 0.1s;
+        }
+
+        .tile:hover:not(.off) { opacity: 0.65; transform: scale(1.04); }
+        .tile:active:not(.off) { transform: scale(0.92) !important; }
+        .tile.off { cursor: default; pointer-events: none; }
+
+        /* Lit state */
+        .tile.lit { opacity: 1 !important; transform: scale(1.1) !important; }
+
+        .tile[data-c="0"].lit { border-color: var(--c0); box-shadow: 0 0 28px var(--c0), 0 0 56px rgba(255,107,53,0.25); background: rgba(255,107,53,0.14); }
+        .tile[data-c="1"].lit { border-color: var(--c1); box-shadow: 0 0 28px var(--c1), 0 0 56px rgba(0,212,255,0.25);  background: rgba(0,212,255,0.14); }
+        .tile[data-c="2"].lit { border-color: var(--c2); box-shadow: 0 0 28px var(--c2), 0 0 56px rgba(255,230,0,0.25);  background: rgba(255,230,0,0.14); }
+        .tile[data-c="3"].lit { border-color: var(--c3); box-shadow: 0 0 28px var(--c3), 0 0 56px rgba(68,136,255,0.25); background: rgba(68,136,255,0.14); }
+        .tile[data-c="4"].lit { border-color: var(--c4); box-shadow: 0 0 28px var(--c4), 0 0 56px rgba(68,255,136,0.25); background: rgba(68,255,136,0.14); }
+        .tile[data-c="5"].lit { border-color: var(--c5); box-shadow: 0 0 28px var(--c5), 0 0 56px rgba(204,68,255,0.25); background: rgba(204,68,255,0.14); }
+
+        /* Pulse for sequence playback */
+        .tile.pulse { animation: tilePulse 0.12s ease; }
+        @keyframes tilePulse {
+            0%   { transform: scale(1.1); }
+            50%  { transform: scale(1.17); }
+            100% { transform: scale(1.1); }
+        }
+
+        /* ─── Game over panel ─── */
+        .go-panel {
+            position: absolute;
+            inset: 0;
+            border-radius: 16px;
+            background: rgba(6,8,15,0.93);
+            backdrop-filter: blur(6px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            z-index: 10;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.97); }
+            to   { opacity: 1; transform: scale(1); }
+        }
+
+        .go-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.58rem;
+            letter-spacing: 0.45em;
+            text-transform: uppercase;
+            color: var(--c0);
+        }
+
+        .go-score {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 5.5rem;
+            font-weight: 700;
+            color: var(--text);
+            line-height: 1;
+        }
+
+        .go-sub {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.62rem;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            color: var(--dim);
+            margin-bottom: 1rem;
+        }
+        .go-sub.new { color: var(--c2); text-shadow: 0 0 12px rgba(255,230,0,0.5); }
+
+        /* ─── Status text ─── */
+        .status {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--dim);
+            text-align: center;
+            min-height: 1.2em;
+            transition: color 0.25s;
+        }
+        .status.s-watch { color: var(--c1); }
+        .status.s-turn  { color: var(--c4); }
+        .status.s-over  { color: var(--c0); }
+
+        /* ─── Progress dots ─── */
+        .dots {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+            justify-content: center;
+            min-height: 9px;
+        }
+
+        .dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: var(--border);
+            transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
+        }
+        .dot.done    { background: var(--c1); transform: scale(1.15); }
+        .dot.current { background: var(--c4); transform: scale(1.25); box-shadow: 0 0 6px var(--c4); }
+
+        /* ─── Start button ─── */
+        .start-btn {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.82rem;
+            font-weight: 600;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            padding: 0.8rem 2.4rem;
+            border-radius: 100px;
+            border: 1.5px solid rgba(100,140,255,0.35);
+            background: rgba(100,140,255,0.08);
+            color: var(--text);
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s, background 0.2s, transform 0.1s;
+        }
+        .start-btn:hover {
+            border-color: rgba(100,140,255,0.65);
+            background: rgba(100,140,255,0.14);
+            box-shadow: 0 0 20px rgba(100,140,255,0.18);
+        }
+        .start-btn:active { transform: scale(0.96); }
+        .start-btn.hidden { display: none; }
+
+        /* ─── Screen flash ─── */
+        #flash {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 998;
+            opacity: 0;
+        }
+        #flash.red   { background: rgba(255,60,50,0.22);  animation: fa 0.38s ease forwards; }
+        #flash.green { background: rgba(68,255,136,0.14); animation: fa 0.28s ease forwards; }
+        @keyframes fa { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+        /* ─── Keyboard hint ─── */
+        .kb-hint {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.5rem;
+            letter-spacing: 0.25em;
+            color: var(--dim);
+            opacity: 0.5;
+            text-transform: uppercase;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div id="flash"></div>
+
+<div class="wrapper">
+
+    <div>
+        <div class="title">Echo</div>
+        <div class="tagline">Sequence Memory · Match the pattern</div>
+    </div>
+
+    <div class="scorebar">
+        <div class="score-item">
+            <div class="score-label">Round</div>
+            <div class="score-val" id="valRound">—</div>
+        </div>
+        <div class="score-sep"></div>
+        <div class="score-item">
+            <div class="score-label">Best</div>
+            <div class="score-val" id="valBest">0</div>
+        </div>
+    </div>
+
+    <div class="grid-wrap">
+        <div class="grid" id="grid"></div>
+        <div class="go-panel" id="goPanel" style="display:none">
+            <div class="go-label">Game Over</div>
+            <div class="go-score" id="goScore">0</div>
+            <div class="go-sub" id="goSub"></div>
+            <button class="start-btn" onclick="startGame()">Play Again</button>
+        </div>
+    </div>
+
+    <div class="status" id="status">Press start to play</div>
+    <div class="dots"   id="dots"></div>
+
+    <button class="start-btn" id="startBtn" onclick="startGame()">Start</button>
+    <div class="kb-hint">Keys 1–6 also work &nbsp;·&nbsp; Enter to start</div>
+
+</div>
+
+<script>
+    const EMOJIS = [
+        { sym: '🔥', c: 0 },
+        { sym: '💎', c: 1 },
+        { sym: '⚡', c: 2 },
+        { sym: '🌊', c: 3 },
+        { sym: '🍀', c: 4 },
+        { sym: '👁️', c: 5 },
+    ];
+
+    const S = {
+        phase:      'idle',   // idle | seq | player | waiting
+        sequence:   [],
+        pIdx:       0,        // player's current index in sequence
+        highScore:  parseInt(localStorage.getItem('echo-hs') || '0'),
+    };
+
+    /* ── Build grid ── */
+    const gridEl = document.getElementById('grid');
+    EMOJIS.forEach((e, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'tile off';
+        btn.dataset.c = e.c;
+        btn.dataset.i = i;
+        btn.textContent = e.sym;
+        btn.addEventListener('click', () => onPress(i));
+        gridEl.appendChild(btn);
+    });
+
+    function tileEl(i) { return gridEl.querySelector(`[data-i="${i}"]`); }
+    function allTiles() { return [...gridEl.querySelectorAll('.tile')]; }
+
+    /* ── Helpers ── */
+    function setStatus(txt, cls = '') {
+        const el = document.getElementById('status');
+        el.textContent = txt;
+        el.className = 'status ' + cls;
+    }
+
+    function setDots(filled, total) {
+        const el = document.getElementById('dots');
+        el.innerHTML = '';
+        for (let i = 0; i < total; i++) {
+            const d = document.createElement('div');
+            d.className = 'dot' + (i < filled ? ' done' : i === filled ? ' current' : '');
+            el.appendChild(d);
+        }
+    }
+
+    function render() {
+        const round = S.sequence.length > 0 ? S.sequence.length - 1 : '—';
+        document.getElementById('valRound').textContent = round;
+        document.getElementById('valBest').textContent  = S.highScore;
+    }
+
+    function screenFlash(color) {
+        const el = document.getElementById('flash');
+        el.className = '';
+        void el.offsetWidth;
+        el.className = color;
+    }
+
+    /* ── Tile light ── */
+    function lightOn(i) {
+        const t = tileEl(i);
+        t.classList.add('lit', 'pulse');
+        t.addEventListener('animationend', () => t.classList.remove('pulse'), { once: true });
+    }
+    function lightOff(i) { tileEl(i).classList.remove('lit', 'pulse'); }
+
+    /* ── Game flow ── */
+    function startGame() {
+        S.sequence = [];
+        S.pIdx     = 0;
+        S.phase    = 'waiting';
+        document.getElementById('goPanel').style.display  = 'none';
+        document.getElementById('startBtn').classList.add('hidden');
+        allTiles().forEach(t => { t.classList.remove('lit', 'pulse'); t.classList.add('off'); });
+        document.getElementById('dots').innerHTML = '';
+        render();
+        setTimeout(nextRound, 500);
+    }
+
+    function nextRound() {
+        S.sequence.push(Math.floor(Math.random() * EMOJIS.length));
+        S.pIdx = 0;
+        render();
+        setDots(0, S.sequence.length);
+        setStatus('Watch carefully…', 's-watch');
+        S.phase = 'seq';
+        playSequence();
+    }
+
+    function speed() {
+        const len = S.sequence.length;
+        return {
+            show: Math.max(220, 520 - len * 18),
+            gap:  Math.max(120, 320 - len * 12),
+        };
+    }
+
+    function playSequence() {
+        const { show, gap } = speed();
+        const period = show + gap;
+
+        S.sequence.forEach((idx, step) => {
+            setTimeout(() => lightOn(idx),  step * period);
+            setTimeout(() => lightOff(idx), step * period + show);
+        });
+
+        const done = S.sequence.length * period + 300;
+        setTimeout(() => {
+            S.phase = 'player';
+            allTiles().forEach(t => t.classList.remove('off'));
+            setDots(0, S.sequence.length);
+            setStatus(`Your turn!  1 / ${S.sequence.length}`, 's-turn');
+        }, done);
+    }
+
+    function onPress(i) {
+        if (S.phase !== 'player') return;
+
+        // Visual feedback
+        lightOn(i);
+        setTimeout(() => lightOff(i), 200);
+
+        if (i === S.sequence[S.pIdx]) {
+            S.pIdx++;
+            if (S.pIdx === S.sequence.length) {
+                // Completed the round
+                S.phase = 'waiting';
+                allTiles().forEach(t => t.classList.add('off'));
+                setDots(S.sequence.length, S.sequence.length);
+                setStatus('', 's-watch');
+                screenFlash('green');
+                setTimeout(nextRound, 800);
+            } else {
+                setDots(S.pIdx, S.sequence.length);
+                setStatus(`Your turn!  ${S.pIdx + 1} / ${S.sequence.length}`, 's-turn');
+            }
+        } else {
+            // Wrong
+            S.phase = 'gameover';
+            allTiles().forEach(t => t.classList.add('off'));
+            screenFlash('red');
+            setTimeout(showGameOver, 350);
+        }
+    }
+
+    function showGameOver() {
+        const score   = Math.max(0, S.sequence.length - 1);
+        const isNew   = score > S.highScore;
+        if (isNew) { S.highScore = score; localStorage.setItem('echo-hs', score); }
+        render();
+
+        document.getElementById('goScore').textContent = score;
+        const sub = document.getElementById('goSub');
+        sub.textContent = isNew ? '★ New Record!' : `Best: ${S.highScore}`;
+        sub.className   = 'go-sub' + (isNew ? ' new' : '');
+
+        setStatus('Game over', 's-over');
+        document.getElementById('goPanel').style.display = 'flex';
+    }
+
+    /* ── Keyboard ── */
+    document.addEventListener('keydown', e => {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        const n = parseInt(e.key);
+        if (n >= 1 && n <= 6) { onPress(n - 1); return; }
+        if (e.key === 'Enter' && (S.phase === 'idle' || S.phase === 'gameover')) startGame();
+    });
+
+    /* ── Init ── */
+    render();
+</script>
+</body>
+</html>
