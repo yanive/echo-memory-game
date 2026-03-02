@@ -343,6 +343,39 @@
 
         .diff-sel.locked .diff-btn { opacity: 0.4; pointer-events: none; }
 
+        /* ─── Speed selector ─── */
+        .speed-sel {
+            display: flex;
+            gap: 0.3rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            padding: 0.22rem;
+        }
+
+        .speed-btn {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            padding: 0.38rem 0.95rem;
+            border-radius: 100px;
+            border: none;
+            background: transparent;
+            color: var(--dim);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .speed-btn:hover:not(:disabled) { color: var(--text); }
+
+        .speed-btn[data-s="slow"].active    { background: rgba(68,136,255,0.15);  color: var(--c3); }
+        .speed-btn[data-s="regular"].active { background: rgba(68,255,136,0.12);  color: var(--c4); }
+        .speed-btn[data-s="fast"].active    { background: rgba(255,107,53,0.15);  color: var(--c0); }
+
+        .speed-sel.locked .speed-btn { opacity: 0.4; pointer-events: none; }
+
         /* ─── Keyboard hint ─── */
         .kb-hint {
             font-family: 'JetBrains Mono', monospace;
@@ -370,6 +403,12 @@
         <button class="diff-btn active" data-d="easy"   onclick="setDifficulty('easy')">Easy</button>
         <button class="diff-btn"        data-d="random" onclick="setDifficulty('random')">Random</button>
         <button class="diff-btn"        data-d="hard"   onclick="setDifficulty('hard')">Hard</button>
+    </div>
+
+    <div class="speed-sel" id="speedSel">
+        <button class="speed-btn"        data-s="slow"    onclick="setSpeed('slow')">Slow</button>
+        <button class="speed-btn active" data-s="regular" onclick="setSpeed('regular')">Regular</button>
+        <button class="speed-btn"        data-s="fast"    onclick="setSpeed('fast')">Fast</button>
     </div>
 
     <div class="scorebar">
@@ -413,10 +452,11 @@
     ];
 
     const S = {
-        phase:      'idle',   // idle | seq | player | waiting
+        phase:      'idle',     // idle | seq | player | waiting
         sequence:   [],
-        pIdx:       0,        // player's current index in sequence
-        difficulty: 'easy',   // easy | random | hard
+        pIdx:       0,          // player's current index in sequence
+        difficulty: 'easy',     // easy | random | hard
+        speed:      'regular',  // slow | regular | fast
         highScores: {
             easy:   parseInt(localStorage.getItem('echo-hs-easy')   || localStorage.getItem('echo-hs') || '0'),
             random: parseInt(localStorage.getItem('echo-hs-random') || '0'),
@@ -615,6 +655,7 @@
         document.getElementById('dots').innerHTML = '';
         resetTileOrder();
         lockDifficulty(true);
+        lockSpeed(true);
         render();
         setTimeout(nextRound, 500);
     }
@@ -635,12 +676,26 @@
         playSequence();
     }
 
+    const SPEED_MULT = { slow: 1.6, regular: 1.0, fast: 0.6 };
+
     function speed() {
         const len = S.sequence.length;
+        const m   = SPEED_MULT[S.speed] ?? 1.0;
         return {
-            show: Math.max(220, 520 - len * 18),
-            gap:  Math.max(120, 320 - len * 12),
+            show: Math.max(140, Math.round((520 - len * 18) * m)),
+            gap:  Math.max(80,  Math.round((320 - len * 12) * m)),
         };
+    }
+
+    /* ── Speed ── */
+    function setSpeed(s) {
+        if (S.phase !== 'idle' && S.phase !== 'gameover') return;
+        S.speed = s;
+        document.querySelectorAll('.speed-btn').forEach(b => b.classList.toggle('active', b.dataset.s === s));
+    }
+
+    function lockSpeed(locked) {
+        document.getElementById('speedSel').classList.toggle('locked', locked);
     }
 
     function playSequence() {
@@ -704,6 +759,7 @@
         }
         render();
         lockDifficulty(false);
+        lockSpeed(false);
 
         document.getElementById('goLabel').textContent = `Game Over · ${S.difficulty.toUpperCase()}`;
         document.getElementById('goScore').textContent = score;
