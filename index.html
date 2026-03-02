@@ -395,6 +395,112 @@
     function tileEl(i) { return gridEl.querySelector(`[data-i="${i}"]`); }
     function allTiles() { return [...gridEl.querySelectorAll('.tile')]; }
 
+    /* ── Audio ── */
+    let audioCtx = null;
+    function ctx() {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        return audioCtx;
+    }
+
+    // Each sound is a function(ac) that creates nodes and plays immediately
+    const SOUNDS = [
+        // 🔥 fire — warm sawtooth C4, lowpass filtered
+        ac => {
+            const osc = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain();
+            osc.type = 'sawtooth'; osc.frequency.value = 261.63;
+            f.type = 'lowpass'; f.frequency.value = 900;
+            g.gain.setValueAtTime(0.28, ac.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.55);
+            osc.connect(f); f.connect(g); g.connect(ac.destination);
+            osc.start(); osc.stop(ac.currentTime + 0.55);
+        },
+        // 💎 gem — bright triangle E5, bell-like
+        ac => {
+            const osc = ac.createOscillator(), g = ac.createGain();
+            osc.type = 'triangle'; osc.frequency.value = 659.25;
+            g.gain.setValueAtTime(0, ac.currentTime);
+            g.gain.linearRampToValueAtTime(0.3, ac.currentTime + 0.01);
+            g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.75);
+            osc.connect(g); g.connect(ac.destination);
+            osc.start(); osc.stop(ac.currentTime + 0.75);
+        },
+        // ⚡ bolt — punchy square, pitch drops fast
+        ac => {
+            const osc = ac.createOscillator(), g = ac.createGain();
+            osc.type = 'square'; osc.frequency.value = 480;
+            osc.frequency.exponentialRampToValueAtTime(160, ac.currentTime + 0.18);
+            g.gain.setValueAtTime(0.18, ac.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.22);
+            osc.connect(g); g.connect(ac.destination);
+            osc.start(); osc.stop(ac.currentTime + 0.22);
+        },
+        // 🌊 wave — smooth sine G4, frequency wobbles
+        ac => {
+            const osc = ac.createOscillator(), g = ac.createGain();
+            osc.type = 'sine'; osc.frequency.value = 392;
+            osc.frequency.linearRampToValueAtTime(430, ac.currentTime + 0.25);
+            osc.frequency.linearRampToValueAtTime(392, ac.currentTime + 0.55);
+            g.gain.setValueAtTime(0, ac.currentTime);
+            g.gain.linearRampToValueAtTime(0.28, ac.currentTime + 0.08);
+            g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.6);
+            osc.connect(g); g.connect(ac.destination);
+            osc.start(); osc.stop(ac.currentTime + 0.6);
+        },
+        // 🍀 clover — soft dual-sine C5 bell (fundamental + harmonic)
+        ac => {
+            [[523.25, 0.22], [1046.5, 0.07]].forEach(([freq, vol]) => {
+                const osc = ac.createOscillator(), g = ac.createGain();
+                osc.type = 'sine'; osc.frequency.value = freq;
+                g.gain.setValueAtTime(vol, ac.currentTime);
+                g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.85);
+                osc.connect(g); g.connect(ac.destination);
+                osc.start(); osc.stop(ac.currentTime + 0.85);
+            });
+        },
+        // 👁️ eye — eerie triangle F#4 with LFO vibrato
+        ac => {
+            const osc = ac.createOscillator(), lfo = ac.createOscillator();
+            const lfoG = ac.createGain(), g = ac.createGain();
+            osc.type = 'triangle'; osc.frequency.value = 369.99;
+            lfo.type = 'sine'; lfo.frequency.value = 7;
+            lfoG.gain.value = 10;
+            lfo.connect(lfoG); lfoG.connect(osc.frequency);
+            g.gain.setValueAtTime(0, ac.currentTime);
+            g.gain.linearRampToValueAtTime(0.24, ac.currentTime + 0.06);
+            g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.72);
+            osc.connect(g); g.connect(ac.destination);
+            osc.start(); lfo.start(); osc.stop(ac.currentTime + 0.72); lfo.stop(ac.currentTime + 0.72);
+        },
+    ];
+
+    // Special sounds
+    function soundSuccess(ac) {
+        [523.25, 659.25, 783.99].forEach((freq, i) => {
+            const osc = ac.createOscillator(), g = ac.createGain();
+            const t = ac.currentTime + i * 0.1;
+            osc.type = 'triangle'; osc.frequency.value = freq;
+            g.gain.setValueAtTime(0.18, t);
+            g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+            osc.connect(g); g.connect(ac.destination);
+            osc.start(t); osc.stop(t + 0.35);
+        });
+    }
+
+    function soundFail(ac) {
+        const osc = ac.createOscillator(), g = ac.createGain();
+        osc.type = 'sawtooth'; osc.frequency.value = 180;
+        osc.frequency.exponentialRampToValueAtTime(60, ac.currentTime + 0.4);
+        g.gain.setValueAtTime(0.3, ac.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.45);
+        osc.connect(g); g.connect(ac.destination);
+        osc.start(); osc.stop(ac.currentTime + 0.45);
+    }
+
+    function playSound(i) { try { SOUNDS[i](ctx()); } catch(e) {} }
+    function playSuccess() { try { soundSuccess(ctx()); } catch(e) {} }
+    function playFail()    { try { soundFail(ctx()); }    catch(e) {} }
+
     /* ── Helpers ── */
     function setStatus(txt, cls = '') {
         const el = document.getElementById('status');
@@ -426,10 +532,11 @@
     }
 
     /* ── Tile light ── */
-    function lightOn(i) {
+    function lightOn(i, sound = true) {
         const t = tileEl(i);
         t.classList.add('lit', 'pulse');
         t.addEventListener('animationend', () => t.classList.remove('pulse'), { once: true });
+        if (sound) playSound(i);
     }
     function lightOff(i) { tileEl(i).classList.remove('lit', 'pulse'); }
 
@@ -498,7 +605,8 @@
                 setDots(S.sequence.length, S.sequence.length);
                 setStatus('', 's-watch');
                 screenFlash('green');
-                setTimeout(nextRound, 800);
+                playSuccess();
+                setTimeout(nextRound, 900);
             } else {
                 setDots(S.pIdx, S.sequence.length);
                 setStatus(`Your turn!  ${S.pIdx + 1} / ${S.sequence.length}`, 's-turn');
@@ -508,7 +616,8 @@
             S.phase = 'gameover';
             allTiles().forEach(t => t.classList.add('off'));
             screenFlash('red');
-            setTimeout(showGameOver, 350);
+            playFail();
+            setTimeout(showGameOver, 400);
         }
     }
 
