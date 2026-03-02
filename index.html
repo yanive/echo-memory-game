@@ -310,6 +310,39 @@
         #flash.green { background: rgba(68,255,136,0.14); animation: fa 0.28s ease forwards; }
         @keyframes fa { 0% { opacity: 1; } 100% { opacity: 0; } }
 
+        /* ─── Difficulty selector ─── */
+        .diff-sel {
+            display: flex;
+            gap: 0.3rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            padding: 0.22rem;
+        }
+
+        .diff-btn {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            padding: 0.38rem 0.95rem;
+            border-radius: 100px;
+            border: none;
+            background: transparent;
+            color: var(--dim);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .diff-btn:hover:not(:disabled) { color: var(--text); }
+
+        .diff-btn[data-d="easy"].active   { background: rgba(100,140,255,0.15); color: var(--c1); }
+        .diff-btn[data-d="random"].active { background: rgba(255,230,0,0.12);   color: var(--c2); }
+        .diff-btn[data-d="hard"].active   { background: rgba(255,107,53,0.15);  color: var(--c0); }
+
+        .diff-sel.locked .diff-btn { opacity: 0.4; pointer-events: none; }
+
         /* ─── Keyboard hint ─── */
         .kb-hint {
             font-family: 'JetBrains Mono', monospace;
@@ -333,6 +366,12 @@
         <div class="tagline">Sequence Memory · Match the pattern</div>
     </div>
 
+    <div class="diff-sel" id="diffSel">
+        <button class="diff-btn active" data-d="easy"   onclick="setDifficulty('easy')">Easy</button>
+        <button class="diff-btn"        data-d="random" onclick="setDifficulty('random')">Random</button>
+        <button class="diff-btn"        data-d="hard"   onclick="setDifficulty('hard')">Hard</button>
+    </div>
+
     <div class="scorebar">
         <div class="score-item">
             <div class="score-label">Round</div>
@@ -348,7 +387,7 @@
     <div class="grid-wrap">
         <div class="grid" id="grid"></div>
         <div class="go-panel" id="goPanel" style="display:none">
-            <div class="go-label">Game Over</div>
+            <div class="go-label" id="goLabel">Game Over</div>
             <div class="go-score" id="goScore">0</div>
             <div class="go-sub" id="goSub"></div>
             <button class="start-btn" onclick="startGame()">Play Again</button>
@@ -377,7 +416,12 @@
         phase:      'idle',   // idle | seq | player | waiting
         sequence:   [],
         pIdx:       0,        // player's current index in sequence
-        highScore:  parseInt(localStorage.getItem('echo-hs') || '0'),
+        difficulty: 'easy',   // easy | random | hard
+        highScores: {
+            easy:   parseInt(localStorage.getItem('echo-hs-easy')   || localStorage.getItem('echo-hs') || '0'),
+            random: parseInt(localStorage.getItem('echo-hs-random') || '0'),
+            hard:   parseInt(localStorage.getItem('echo-hs-hard')   || '0'),
+        },
     };
 
     /* ── Build grid ── */
@@ -521,7 +565,7 @@
     function render() {
         const round = S.sequence.length > 0 ? S.sequence.length - 1 : '—';
         document.getElementById('valRound').textContent = round;
-        document.getElementById('valBest').textContent  = S.highScore;
+        document.getElementById('valBest').textContent  = S.highScores[S.difficulty];
     }
 
     function screenFlash(color) {
@@ -540,21 +584,49 @@
     }
     function lightOff(i) { tileEl(i).classList.remove('lit', 'pulse'); }
 
+    /* ── Difficulty ── */
+    function setDifficulty(d) {
+        if (S.phase !== 'idle' && S.phase !== 'gameover') return;
+        S.difficulty = d;
+        document.querySelectorAll('.diff-btn').forEach(b => b.classList.toggle('active', b.dataset.d === d));
+        render();
+    }
+
+    function lockDifficulty(locked) {
+        document.getElementById('diffSel').classList.toggle('locked', locked);
+    }
+
+    function shuffleTiles() {
+        [...allTiles()].sort(() => Math.random() - 0.5).forEach(t => gridEl.appendChild(t));
+    }
+
+    function resetTileOrder() {
+        for (let i = 0; i < EMOJIS.length; i++) gridEl.appendChild(tileEl(i));
+    }
+
     /* ── Game flow ── */
     function startGame() {
         S.sequence = [];
         S.pIdx     = 0;
         S.phase    = 'waiting';
-        document.getElementById('goPanel').style.display  = 'none';
+        document.getElementById('goPanel').style.display = 'none';
         document.getElementById('startBtn').classList.add('hidden');
         allTiles().forEach(t => { t.classList.remove('lit', 'pulse'); t.classList.add('off'); });
         document.getElementById('dots').innerHTML = '';
+        resetTileOrder();
+        lockDifficulty(true);
         render();
         setTimeout(nextRound, 500);
     }
 
     function nextRound() {
-        S.sequence.push(Math.floor(Math.random() * EMOJIS.length));
+        if (S.difficulty === 'hard') {
+            // Completely new sequence every round — no memory carry-over
+            const len = S.sequence.length + 1;
+            S.sequence = Array.from({ length: len }, () => Math.floor(Math.random() * EMOJIS.length));
+        } else {
+            S.sequence.push(Math.floor(Math.random() * EMOJIS.length));
+        }
         S.pIdx = 0;
         render();
         setDots(0, S.sequence.length);
@@ -582,6 +654,7 @@
 
         const done = S.sequence.length * period + 300;
         setTimeout(() => {
+            if (S.difficulty === 'random') shuffleTiles();
             S.phase = 'player';
             allTiles().forEach(t => t.classList.remove('off'));
             setDots(0, S.sequence.length);
@@ -622,14 +695,20 @@
     }
 
     function showGameOver() {
-        const score   = Math.max(0, S.sequence.length - 1);
-        const isNew   = score > S.highScore;
-        if (isNew) { S.highScore = score; localStorage.setItem('echo-hs', score); }
+        const score = Math.max(0, S.sequence.length - 1);
+        const hs    = S.highScores[S.difficulty];
+        const isNew = score > hs;
+        if (isNew) {
+            S.highScores[S.difficulty] = score;
+            localStorage.setItem(`echo-hs-${S.difficulty}`, score);
+        }
         render();
+        lockDifficulty(false);
 
+        document.getElementById('goLabel').textContent = `Game Over · ${S.difficulty.toUpperCase()}`;
         document.getElementById('goScore').textContent = score;
         const sub = document.getElementById('goSub');
-        sub.textContent = isNew ? '★ New Record!' : `Best: ${S.highScore}`;
+        sub.textContent = isNew ? '★ New Record!' : `Best: ${S.highScores[S.difficulty]}`;
         sub.className   = 'go-sub' + (isNew ? ' new' : '');
 
         setStatus('Game over', 's-over');
