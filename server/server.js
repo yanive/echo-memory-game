@@ -134,29 +134,81 @@ app.post('/submit', submitLimiter, async (req, res) => {
 
   try {
     const token = await getWixToken();
-    const wixRes = await fetch('https://www.wixapis.com/wix-data/v2/items', {
+    const headers = { 'Content-Type': 'application/json', Authorization: token };
+
+    // Check for existing entry with same name + difficulty + speed
+    const queryRes = await fetch('https://www.wixapis.com/wix-data/v2/items/query', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: token },
+      headers,
       body: JSON.stringify({
         dataCollectionId: WIX_COLLECTION,
-        dataItem: {
-          data: {
-            name: safeName,
-            score: clampedScore,
-            difficulty: session.difficulty,
-            speed: session.speed,
+        query: {
+          filter: {
+            name: { $eq: safeName },
+            difficulty: { $eq: session.difficulty },
+            speed: { $eq: session.speed },
           },
+          paging: { limit: 1 },
         },
       }),
     });
+
+    let existing = null;
+    if (queryRes.ok) {
+      const queryData = await queryRes.json();
+      if (queryData.dataItems?.length) existing = queryData.dataItems[0];
+    }
+
+    if (existing && existing.data.score >= clampedScore) {
+      // Existing score is equal or higher — nothing to do
+      res.json({ ok: true });
+      return;
+    }
+
+    let wixRes;
+    if (existing) {
+      // Update existing entry with higher score
+      wixRes = await fetch(`https://www.wixapis.com/wix-data/v2/items/${existing.id}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          dataCollectionId: WIX_COLLECTION,
+          dataItem: {
+            id: existing.id,
+            data: {
+              ...existing.data,
+              score: clampedScore,
+            },
+          },
+        }),
+      });
+    } else {
+      // Insert new entry
+      wixRes = await fetch('https://www.wixapis.com/wix-data/v2/items', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          dataCollectionId: WIX_COLLECTION,
+          dataItem: {
+            data: {
+              name: safeName,
+              score: clampedScore,
+              difficulty: session.difficulty,
+              speed: session.speed,
+            },
+          },
+        }),
+      });
+    }
+
     if (!wixRes.ok) {
       const errText = await wixRes.text();
-      console.error('Wix insert error:', wixRes.status, errText);
+      console.error('Wix save error:', wixRes.status, errText);
       return res.status(502).json({ error: 'Failed to save score' });
     }
     res.json({ ok: true });
   } catch (err) {
-    console.error('Wix insert error:', err);
+    console.error('Wix save error:', err);
     res.status(502).json({ error: 'Failed to save score' });
   }
 });
