@@ -880,6 +880,7 @@
         S.sequence = [];
         S.pIdx     = 0;
         S.phase    = 'waiting';
+        _sessionId = null;
         document.getElementById('goPanel').style.display = 'none';
         document.getElementById('startBtn').classList.add('hidden');
         allTiles().forEach(t => { t.classList.remove('lit', 'pulse'); t.classList.add('off'); });
@@ -888,6 +889,15 @@
         lockDifficulty(true);
         lockSpeed(true);
         render();
+        // Request a game session from the backend (non-blocking)
+        fetch(`${API_BASE}/start`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ difficulty: S.difficulty, speed: S.speed }),
+        })
+        .then(r => r.json())
+        .then(d => { _sessionId = d.sessionId; })
+        .catch(() => {}); // game works without backend
         setTimeout(nextRound, 500);
     }
 
@@ -991,54 +1001,9 @@
     /* ── Init ── */
     render();
 
-    /* ── Wix API ── */
-    const WIX_CLIENT_ID  = 'a004da6b-4f37-47dd-aee9-7ce1107638d8';
-    const WIX_COLLECTION = 'EchoScores';
-    let _wixToken = null;
-
-    async function getWixToken() {
-        if (_wixToken) return _wixToken;
-        const res = await fetch('https://www.wixapis.com/oauth2/token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId: WIX_CLIENT_ID, grantType: 'anonymous' }),
-        });
-        const data = await res.json();
-        _wixToken = data.access_token;
-        return _wixToken;
-    }
-
-    async function wixInsertScore(name, score, difficulty, speed) {
-        const token = await getWixToken();
-        return fetch('https://www.wixapis.com/wix-data/v2/items', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: token },
-            body: JSON.stringify({
-                dataCollectionId: WIX_COLLECTION,
-                dataItem: { data: { name, score, difficulty, speed } },
-            }),
-        });
-    }
-
-    async function wixFetchLeaderboard(difficulty, speed) {
-        const token = await getWixToken();
-        const filter = { difficulty: { $eq: difficulty } };
-        if (speed) filter.speed = { $eq: speed };
-        const res = await fetch('https://www.wixapis.com/wix-data/v2/items/query', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: token },
-            body: JSON.stringify({
-                dataCollectionId: WIX_COLLECTION,
-                query: {
-                    filter,
-                    sort: [{ fieldName: 'score', order: 'DESC' }],
-                    paging: { limit: 10 },
-                },
-            }),
-        });
-        const data = await res.json();
-        return data.dataItems?.map(item => item.data) ?? [];
-    }
+    /* ── Backend API ── */
+    const API_BASE = 'https://echo-leaderboard.onrender.com';
+    let _sessionId = null;
 
     /* ── Game Over — name submit ── */
     let _lastScore = 0;
@@ -1073,7 +1038,13 @@
         const raw  = document.getElementById('nameInput').value.trim();
         const name = raw || 'Anonymous';
         document.getElementById('nameSection').style.display = 'none';
-        try { await wixInsertScore(name, _lastScore, S.difficulty, S.speed); } catch(e) { /* silent */ }
+        try {
+            await fetch(`${API_BASE}/submit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId: _sessionId, name, score: _lastScore }),
+            });
+        } catch(e) { /* silent — game works offline */ }
         openLb(S.difficulty, S.speed);
     }
 
@@ -1122,7 +1093,9 @@
         const rows = document.getElementById('lbRows');
         rows.innerHTML = '<div class="lb-spinner">Loading…</div>';
         try {
-            const entries = await wixFetchLeaderboard(_lbDiff, _lbSpeed);
+            const res = await fetch(`${API_BASE}/leaderboard?difficulty=${_lbDiff}&speed=${_lbSpeed}`);
+            const data = await res.json();
+            const entries = data.entries || [];
             if (!entries.length) {
                 rows.innerHTML = '<div class="lb-empty">No scores yet — be first!</div>';
                 return;
